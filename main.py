@@ -6,9 +6,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import boto3
 from botocore.exceptions import ClientError
+import uuid
 
 dynamodb = boto3.resource('dynamodb')  # Set your region
-table = dynamodb.Table('rider-info')  # Replace with your table name
 
 app = Flask(__name__)
 #excel_file = "senior_signups.xlsx"
@@ -27,16 +27,17 @@ def sign_up_senior():
         return jsonify({"message": "Missing required fields"}), 400
 
     row = {
-        "email-address": data["email"],
-        "full-name": data["fullName"],
+        "emailaddress": data["email"],
+        "fullname": data["fullName"],
         "phone": data["phone"],
         "password": data["password"],  # ⚠️ Hash in production
         "address": data["address"]
     }
 
     try:
+        rider_table = dynamodb.Table('riderinfo')
         # ✅ Prevent duplicate email using conditional expression
-        table.put_item(
+        rider_table.put_item(
             Item=row,
             ConditionExpression="attribute_not_exists(#email)",
             ExpressionAttributeNames={"#email": "email-address"}
@@ -82,7 +83,7 @@ def sign_up_senior():
 @app.route("/signUpVolunteer", methods=["POST"])
 def sign_up_volunteer():
     data = request.get_json()
-    print(data)
+    print("lucky")
 
     required_fields = [
         "fullName", "dob", "email", "password", "phone", "address",
@@ -90,28 +91,30 @@ def sign_up_volunteer():
         "backgroundCheck", "volunteeredBefore", "firstAid", "mobilityHelp"
     ]
     if not data or not all(field in data for field in required_fields):
+        print("Missing required fields")
         return jsonify({"message": "Missing required fields"}), 400
 
     row = {
-        "email-address": data["email"],
+        "emailaddress": data["email"],
         "password": data["password"],  
-        "full-name": data["fullName"],
-        "date-of-birth": data["dob"],
+        "fullname": data["fullName"],
+        "dateofbirth": data["dob"],
         "phone": data["phone"],
         "address": data["address"],
-        "has-driver's-license": data["hasLicense"],
-        "license-number": data["licenseNumber"],
-        "has-vehicle": data["hasVehicle"],
-        "vehicle-type": data["vehicleType"],
-        "proof-of-insurance": data["proof"],
-        "background-check-consent": data["backgroundCheck"],
-        "volunteered-before": data["volunteeredBefore"],
-        "first-aid-trained": data["firstAid"],
-        "comfortable-with-mobility-assistance": data["mobilityHelp"]
+        "hasdriverlicense": data["hasLicense"],
+        "licensenumber": data["licenseNumber"],
+        "hasvehicle": data["hasVehicle"],
+        "vehicletype": data["vehicleType"],
+        "proofofinsurance": data["proof"],
+        "backgroundcheckconsent": data["backgroundCheck"],
+        "volunteeredbefore": data["volunteeredBefore"],
+        "firstaidtrained": data["firstAid"],
+        "mobilityassistance": data["mobilityHelp"]
     }
+    print("shakthi")
 
     try:
-        volunteer_table = boto3.resource('dynamodb').Table('volunteers-info')
+        volunteer_table = boto3.resource('dynamodb').Table('volunteerinfo')
 
         volunteer_table.put_item(
             Item=row,
@@ -163,17 +166,19 @@ def login():
 
     email = data["email"]
     password = data["password"]
+    rider_table = dynamodb.Table('riderinfo')
+    volunteer_table = dynamodb.Table('volunteerinfo')
 
     # Check in rider-info table (senior)
     try:
-        response = table.get_item(Key={"email-address": email})
+        response = rider_table.get_item(Key={"emailaddress": email})
         senior = response.get("Item")
         if senior:
             if senior.get("password") == password:
                 return jsonify({
-                    "message": "Senior account login successful",
+                    "message": "success",
                     "accountType": "senior",
-                    "data": senior
+                    "userInfo": senior
                 }), 200
             else:
                 return jsonify({"message": "Incorrect password"}), 401
@@ -182,15 +187,15 @@ def login():
 
     # Check in volunteers-info table
     try:
-        volunteer_table = boto3.resource('dynamodb').Table('volunteers-info')
-        response = volunteer_table.get_item(Key={"email-address": email})
+        volunteer_table = boto3.resource('dynamodb').Table('volunteerinfo')
+        response = volunteer_table.get_item(Key={"emailaddress": email})
         volunteer = response.get("Item")
         if volunteer:
             if volunteer.get("password") == password:
                 return jsonify({
-                    "message": "Volunteer account login successful",
+                    "message": "success",
                     "accountType": "volunteer",
-                    "data": volunteer
+                    "userInfo": volunteer
                 }), 200
             else:
                 return jsonify({"message": "Incorrect password"}), 401
@@ -199,7 +204,86 @@ def login():
 
     return jsonify({"message": "Account does not exist"}), 404
 
+@app.route("/requestRide", methods=["POST"])
+def request_ride():
+    data = request.get_json()
+    try: 
+        print(data)
+
+        required_fields = ["currentLocation", "dropoffLocation", "pickupDateTime", "userEmailAddress"]
+        if not data or not all(field in data for field in required_fields):
+            print("Line 210")
+            return jsonify({"message": "Missing required fields"}), 400
+
+        pickup_datetime = data["pickupDateTime"]
+        print("Pickup date and time:", pickup_datetime)
+
+        ride_row = {
+            "id": str(uuid.uuid4()),  # Unique ride id
+            "currentlocation": data["currentLocation"],
+            "dropofflocation": data["dropoffLocation"],
+            "pickupDateTime": pickup_datetime,
+            "userEmailAddress": data["userEmailAddress"],
+        }
+        print(ride_row)
+        print("Ride row to be saved:", ride_row)
+    
+        ride_table = dynamodb.Table('rideinfo')  # Use the shared resource
+        response = ride_table.put_item(Item=ride_row)
+        print("DynamoDB put_item response:", response)
+
+        # --- Notify all volunteers ---
+        volunteer_table = dynamodb.Table('volunteerinfo')
+        volunteer_emails = []
+        scan_kwargs = {}
+        done = False
+        start_key = None
+
+        while not done:
+            if start_key:
+                scan_kwargs['ExclusiveStartKey'] = start_key
+            response = volunteer_table.scan(ProjectionExpression="emailaddress")
+            volunteer_emails.extend([item["emailaddress"] for item in response.get("Items", []) if "emailaddress" in item])
+            start_key = response.get('LastEvaluatedKey', None)
+            done = start_key is None
+
+        print("Volunteer emails:", volunteer_emails)
+
+        # Email details
+        sender_email = "vkalpsm@gmail.com"
+        app_password = "wkmu kctm vpje coib"
+        subject = "SeniorGo: New Ride Request"
+        body = (
+            f"A senior has requested a ride.\n\n"
+            f"Current Location: {data['currentLocation']}\n"
+            f"Dropoff Location: {data['dropoffLocation']}\n"
+            f"Pickup DateTime: {pickup_datetime}\n"
+            f"Senior Email: {data['userEmailAddress']}\n\n"
+            f"Please log in to the SeniorGo platform for more details."
+        )
+
+        for volunteer_email in volunteer_emails:
+            try:
+                msg = MIMEMultipart()
+                msg["From"] = sender_email
+                msg["To"] = volunteer_email
+                msg["Subject"] = subject
+                msg.attach(MIMEText(body, "plain"))
+
+                with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                    server.starttls()
+                    server.login(sender_email, app_password)
+                    server.send_message(msg)
+                print(f"✅ Email sent to {volunteer_email}")
+            except Exception as e:
+                print(f"Failed to send email to {volunteer_email}: {e}")
+
+        return jsonify({"message": "Ride request saved successfully!"}), 200
+    except Exception as e:
+        print(f"Error saving ride request: {e}")
+        return jsonify({"message": f"Failed to save ride request: {str(e)}"}), 500
+
     
 if __name__ == "__main__":
-   app.run(debug=True, host='10.0.0.24', port=5000)  # Change host and port as needed
+   app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
 
