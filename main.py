@@ -224,6 +224,8 @@ def request_ride():
             "dropofflocation": data["dropoffLocation"],
             "pickupDateTime": pickup_datetime,
             "userEmailAddress": data["userEmailAddress"],
+            "acceptedby": "",  # New attribute for accepted volunteer, initially empty
+            "status": "requested"  # Set status to "requested" when ride is created
         }
         print(ride_row)
         print("Ride row to be saved:", ride_row)
@@ -282,6 +284,64 @@ def request_ride():
     except Exception as e:
         print(f"Error saving ride request: {e}")
         return jsonify({"message": f"Failed to save ride request: {str(e)}"}), 500
+
+@app.route("/activeRequests", methods=["GET"])
+def active_requests():
+    try:
+        print("Fetching active ride requests...")
+        ride_table = dynamodb.Table('rideinfo')
+        response = ride_table.scan()
+        items = response.get("Items", [])
+        active_requests = []
+        for item in items:
+            # Only include rides that are not accepted
+            if item.get("status", "") != "Accepted":
+                ride = {
+                    "id": item.get("id", ""),
+                    "currentlocation": item.get("currentlocation", ""),
+                    "dropofflocation": item.get("dropofflocation", ""),
+                    "pickupDateTime": item.get("pickupDateTime", ""),
+                    "userEmailAddress": item.get("userEmailAddress", ""),
+                    "acceptedby": item.get("acceptedby", ""),
+                    "status": item.get("status", "")
+                }
+                active_requests.append(ride)
+        print(f"Active requests found: {len(active_requests)}")
+        return jsonify({"activeRequests": active_requests}), 200
+    except Exception as e:
+        print(f"Error fetching active ride requests: {e}")
+        return jsonify({"message": f"Failed to fetch active ride requests: {str(e)}"}), 500
+
+@app.route("/acceptRequests", methods=["POST"])
+def accept_requests():
+    data = request.get_json()
+    try:
+        print("Received data for acceptRequests:", data)  # Add this line
+        ride_id = data.get("id")
+        volunteer_email = data.get("emailaddress")
+        if not ride_id or not volunteer_email:
+            return jsonify({"message": "Missing ride id or volunteer email"}), 400
+
+        ride_table = dynamodb.Table('rideinfo')
+        print(f"Accepted by volunteer: {volunteer_email}")
+        response = ride_table.update_item(
+            Key={"id": ride_id},
+            UpdateExpression="SET #status = :accepted, #acceptedby = :vol_email",
+            ExpressionAttributeNames={
+                "#status": "status",
+                "#acceptedby": "acceptedby"
+            },
+            ExpressionAttributeValues={
+                ":accepted": "Accepted",
+                ":vol_email": volunteer_email
+            },
+            ReturnValues="UPDATED_NEW"
+        )
+        print(f"Ride {ride_id} accepted by {volunteer_email}. Update response: {response}")
+        return jsonify({"message": "Ride accepted successfully!"}), 200
+    except Exception as e:
+        print(f"Error accepting ride request: {e}")
+        return jsonify({"message": f"Failed to accept ride request: {str(e)}"}), 500
 
     
 if __name__ == "__main__":
