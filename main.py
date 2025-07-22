@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 import boto3
 from botocore.exceptions import ClientError
 import uuid
+import random
 
 dynamodb = boto3.resource('dynamodb')  # Set your region
 
@@ -338,10 +339,214 @@ def accept_requests():
             ReturnValues="UPDATED_NEW"
         )
         print(f"Ride {ride_id} accepted by {volunteer_email}. Update response: {response}")
-        return jsonify({"message": "Ride accepted successfully!"}), 200
+        return jsonify({"message": "Ride accepted successfully!"}, 200)
     except Exception as e:
         print(f"Error accepting ride request: {e}")
         return jsonify({"message": f"Failed to accept ride request: {str(e)}"}), 500
+
+@app.route("/acceptedRequests", methods=["POST"])
+def accepted_requests():
+    data = request.get_json()
+    try:
+        print("Fetching accepted ride requests...")
+        emailaddress = data.get("emailaddress")
+        print("The email address is:", emailaddress)
+        ride_table = dynamodb.Table('rideinfo')
+        response = ride_table.scan()
+        items = response.get("Items", [])
+        accepted_requests = []
+        for item in items:
+            print(f"Checking item: status={item.get('status', '')}, acceptedby={item.get('acceptedby', '')}")
+            if (
+                item.get("status", "") == "Accepted"
+                and item.get("acceptedby", "") == emailaddress
+            ):
+                ride = {
+                    "id": item.get("id", ""),
+                    "currentlocation": item.get("currentlocation", ""),
+                    "dropofflocation": item.get("dropofflocation", ""),
+                    "pickupDateTime": item.get("pickupDateTime", ""),
+                    "userEmailAddress": item.get("userEmailAddress", ""),
+                    "acceptedby": item.get("acceptedby", ""),
+                    "status": item.get("status", "")
+                }
+                accepted_requests.append(ride)
+        print(f"Accepted requests found: {len(accepted_requests)}")
+        return jsonify({"acceptedRequests": accepted_requests}), 200
+    except Exception as e:
+        print(f"Error fetching accepted ride requests: {e}")
+        return jsonify({"message": f"Failed to fetch accepted ride requests: {str(e)}"}), 500
+
+@app.route("/currentRides", methods=["POST"])
+def current_rides():
+    data = request.get_json()
+    try:
+        print("Fetching ride status for user:", data)
+        user_email = data.get("emailaddress")
+        print("User email address:", user_email)
+        if not user_email:
+            return jsonify({"message": "Missing emailaddress"}), 400
+        print("User email address:", user_email)
+        ride_table = dynamodb.Table('rideinfo')
+        response = ride_table.scan()
+        items = response.get("Items", [])
+        rides = []
+        for item in items:
+            if item.get("userEmailAddress", "") == user_email:
+                rides.append({
+                    "id": item.get("id", ""),
+                    "status": item.get("status", ""),
+                    "currentlocation": item.get("currentlocation", ""),
+                    "dropofflocation": item.get("dropofflocation", ""),
+                    "acceptedby": item.get("acceptedby", ""),
+                    "pickupDateTime": item.get("pickupDateTime", "")
+                })
+        print(f"Current rides found: {len(rides)}")
+        return jsonify({"currentRides": rides}), 200
+    except Exception as e:
+        print(f"Error fetching ride status: {e}")
+        return jsonify({"message": f"Failed to fetch ride status: {str(e)}"}), 500
+
+@app.route("/forgotPassword", methods=["POST"])
+def forgot_password():
+    data = request.get_json()
+    user_email = data.get("emailaddress")
+    if not user_email:
+        return jsonify({"message": "Missing emailaddress"}), 400
+
+    try:
+        code = "{:06d}".format(random.randint(0, 999999))
+        sender_email = "vkalpsm@gmail.com"
+        receiver_email = user_email
+        app_password = "wkmu kctm vpje coib"
+        subject = "SeniorGo Password Reset Code"
+        body = f"Your password reset code is: {code}"
+
+        rider_table = dynamodb.Table('riderinfo')
+        volunteer_table = dynamodb.Table('volunteerinfo')
+
+        # Check in riderinfo
+        rider_resp = rider_table.get_item(Key={"emailaddress": user_email})
+        if "Item" in rider_resp and rider_resp["Item"]:
+            rider_table.update_item(
+                Key={"emailaddress": user_email},
+                UpdateExpression="SET #pwd = :pwd, #reset = :reset",
+                ExpressionAttributeNames={
+                    "#pwd": "password",
+                    "#reset": "resetPassword"
+                },
+                ExpressionAttributeValues={
+                    ":pwd": code,
+                    ":reset": True
+                }
+            )
+            # Send email
+            msg = MIMEMultipart()
+            msg["From"] = sender_email
+            msg["To"] = receiver_email
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "plain"))
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.starttls()
+                server.login(sender_email, app_password)
+                server.send_message(msg)
+                print(f"✅ Password reset code sent to {receiver_email}")
+            return jsonify({"message": "Password reset code sent", "code": code}), 200
+
+        # Check in volunteerinfo
+        volunteer_resp = volunteer_table.get_item(Key={"emailaddress": user_email})
+        if "Item" in volunteer_resp and volunteer_resp["Item"]:
+            volunteer_table.update_item(
+                Key={"emailaddress": user_email},
+                UpdateExpression="SET #pwd = :pwd, #reset = :reset",
+                ExpressionAttributeNames={
+                    "#pwd": "password",
+                    "#reset": "resetPassword"
+                },
+                ExpressionAttributeValues={
+                    ":pwd": code,
+                    ":reset": True
+                }
+            )
+            # Send email
+            msg = MIMEMultipart()
+            msg["From"] = sender_email
+            msg["To"] = receiver_email
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "plain"))
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.starttls()
+                server.login(sender_email, app_password)
+                server.send_message(msg)
+                print(f"✅ Password reset code sent to {receiver_email}")
+            return jsonify({"message": "Password reset code sent", "code": code}), 200
+
+        # Not found in either
+        return jsonify({"message": "Email address not found"}), 404
+
+    except Exception as e:
+        print(f"Error in forgotPassword: {e}")
+        return jsonify({"message": f"Error processing request: {str(e)}"}), 500
+
+@app.route("/changePassword", methods=["POST"])
+def change_password():
+    data = request.get_json()
+    print(data)
+    email = data.get("emailaddress")
+    old_password = data.get("oldpassword")
+    new_password = data.get("newpassword")
+    if not email or not old_password or not new_password:
+        return jsonify({"message": "Missing required fields"}), 400
+
+    try:
+        rider_table = dynamodb.Table('riderinfo')
+        volunteer_table = dynamodb.Table('volunteerinfo')
+
+        # Check in riderinfo
+        rider_resp = rider_table.get_item(Key={"emailaddress": email})
+        rider = rider_resp.get("Item")
+        if rider:
+            if rider.get("password") != old_password:
+                return jsonify({"message": "Old password is incorrect"}), 401
+            rider_table.update_item(
+                Key={"emailaddress": email},
+                UpdateExpression="SET #pwd = :pwd, #reset = :reset",
+                ExpressionAttributeNames={
+                    "#pwd": "password",
+                    "#reset": "resetPassword"
+                },
+                ExpressionAttributeValues={
+                    ":pwd": new_password,
+                    ":reset": False
+                }
+            )
+            return jsonify({"message": "Password changed successfully"}), 200
+
+        # Check in volunteerinfo
+        volunteer_resp = volunteer_table.get_item(Key={"emailaddress": email})
+        volunteer = volunteer_resp.get("Item")
+        if volunteer:
+            if volunteer.get("password") != old_password:
+                return jsonify({"message": "Old password is incorrect"}), 401
+            volunteer_table.update_item(
+                Key={"emailaddress": email},
+                UpdateExpression="SET #pwd = :pwd, #reset = :reset",
+                ExpressionAttributeNames={
+                    "#pwd": "password",
+                    "#reset": "resetPassword"
+                },
+                ExpressionAttributeValues={
+                    ":pwd": new_password,
+                    ":reset": False
+                }
+            )
+            return jsonify({"message": "Password changed successfully"}), 200
+
+        return jsonify({"message": "Email address not found"}), 404
+
+    except Exception as e:
+        print(f"Error in changePassword: {e}")
+        return jsonify({"message": f"Error processing request: {str(e)}"}), 500
 
     
 if __name__ == "__main__":
