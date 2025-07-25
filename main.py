@@ -22,17 +22,30 @@ def home():
 def sign_up_senior():
     data = request.get_json()
     print(data)
-
-    required_fields = ["fullName", "phone", "email", "password", "confirmPassword", "address", "agree"]
+    required_fields = ["fullName", "phone", "email", "password", "confirmPassword", "address", "agree", "groupCode"]
     if not data or not all(field in data for field in required_fields):
         return jsonify({"message": "Missing required fields"}), 400
+
+    # Validate groupcode
+    groupcode = data["groupCode"]
+    group_table = boto3.resource('dynamodb').Table('groupinfo')
+    group_resp = group_table.scan(
+        FilterExpression="groupcode = :code",
+        ExpressionAttributeValues={":code": groupcode}
+    )
+    if not group_resp.get("Items"):
+        return jsonify({"message": "Invalid groupcode"}), 400
+
+    # Get the actual groupcode from the groupinfo table (ensures correct casing/format)
+    groupcode_db = group_resp["Items"][0]["groupcode"]
 
     row = {
         "emailaddress": data["email"],
         "fullname": data["fullName"],
         "phone": data["phone"],
         "password": data["password"],  # ⚠️ Hash in production
-        "address": data["address"]
+        "address": data["address"],
+        "groupcode": groupcode_db
     }
 
     try:
@@ -85,15 +98,27 @@ def sign_up_senior():
 def sign_up_volunteer():
     data = request.get_json()
     print("lucky")
-
     required_fields = [
         "fullName", "dob", "email", "password", "phone", "address",
         "hasLicense", "licenseNumber", "hasVehicle", "vehicleType", "proof",
-        "backgroundCheck", "volunteeredBefore", "firstAid", "mobilityHelp"
+        "backgroundCheck", "volunteeredBefore", "firstAid", "mobilityHelp", "groupCode"
     ]
     if not data or not all(field in data for field in required_fields):
         print("Missing required fields")
         return jsonify({"message": "Missing required fields"}), 400
+
+    # Validate groupcode
+    groupcode = data["groupCode"]
+    group_table = boto3.resource('dynamodb').Table('groupinfo')
+    group_resp = group_table.scan(
+        FilterExpression="groupcode = :code",
+        ExpressionAttributeValues={":code": groupcode}
+    )
+    if not group_resp.get("Items"):
+        return jsonify({"message": "Invalid groupcode"}), 400
+
+    # Get the actual groupcode from the groupinfo table (ensures correct casing/format)
+    groupcode_db = group_resp["Items"][0]["groupcode"]
 
     row = {
         "emailaddress": data["email"],
@@ -110,7 +135,8 @@ def sign_up_volunteer():
         "backgroundcheckconsent": data["backgroundCheck"],
         "volunteeredbefore": data["volunteeredBefore"],
         "firstaidtrained": data["firstAid"],
-        "mobilityassistance": data["mobilityHelp"]
+        "mobilityassistance": data["mobilityHelp"],
+        "groupcode": groupcode_db  # Store the groupcode from the groupinfo table
     }
     print("shakthi")
 
@@ -219,14 +245,23 @@ def request_ride():
         pickup_datetime = data["pickupDateTime"]
         print("Pickup date and time:", pickup_datetime)
 
+        # Get groupcode from riderinfo table
+        rider_table = dynamodb.Table('riderinfo')
+        rider_resp = rider_table.get_item(Key={"emailaddress": data["userEmailAddress"]})
+        rider = rider_resp.get("Item")
+        if not rider or "groupcode" not in rider:
+            return jsonify({"message": "User not found or missing groupcode"}), 400
+        groupcode = rider["groupcode"]
+
         ride_row = {
             "id": str(uuid.uuid4()),  # Unique ride id
             "currentlocation": data["currentLocation"],
             "dropofflocation": data["dropoffLocation"],
             "pickupDateTime": pickup_datetime,
             "userEmailAddress": data["userEmailAddress"],
-            "acceptedby": "",  # New attribute for accepted volunteer, initially empty
-            "status": "requested"  # Set status to "requested" when ride is created
+            "acceptedby": "",
+            "status": "requested",
+            "groupcode": groupcode  # Store groupcode from riderinfo
         }
         print(ride_row)
         print("Ride row to be saved:", ride_row)
@@ -248,7 +283,7 @@ def request_ride():
             response = volunteer_table.scan(ProjectionExpression="emailaddress")
             volunteer_emails.extend([item["emailaddress"] for item in response.get("Items", []) if "emailaddress" in item])
             start_key = response.get('LastEvaluatedKey', None)
-            done = start_key is None
+            done = start_key is None 
 
         print("Volunteer emails:", volunteer_emails)
 
@@ -286,17 +321,29 @@ def request_ride():
         print(f"Error saving ride request: {e}")
         return jsonify({"message": f"Failed to save ride request: {str(e)}"}), 500
 
-@app.route("/activeRequests", methods=["GET"])
+@app.route("/activeRequests", methods=["POST"])
 def active_requests():
+    data = request.get_json()
+    emailaddress = data.get("emailaddress")
+    if not emailaddress:
+        return jsonify({"message": "Missing emailaddress"}), 400
+
     try:
         print("Fetching active ride requests...")
+        volunteer_table = dynamodb.Table('volunteerinfo')
+        volunteer_resp = volunteer_table.get_item(Key={"emailaddress": emailaddress})
+        volunteer = volunteer_resp.get("Item")
+        if not volunteer or "groupcode" not in volunteer:
+            return jsonify({"message": "Volunteer not found or missing groupcode"}), 400
+        groupcode = volunteer["groupcode"]
+
         ride_table = dynamodb.Table('rideinfo')
         response = ride_table.scan()
         items = response.get("Items", [])
         active_requests = []
         for item in items:
-            # Only include rides that are not accepted
-            if item.get("status", "") != "Accepted":
+            # Only include rides that are not accepted and match volunteer's groupcode
+            if item.get("status", "") != "Accepted" and item.get("groupcode", "") == groupcode:
                 ride = {
                     "id": item.get("id", ""),
                     "currentlocation": item.get("currentlocation", ""),
@@ -351,15 +398,24 @@ def accepted_requests():
         print("Fetching accepted ride requests...")
         emailaddress = data.get("emailaddress")
         print("The email address is:", emailaddress)
+        volunteer_table = dynamodb.Table('volunteerinfo')
+        volunteer_resp = volunteer_table.get_item(Key={"emailaddress": emailaddress})
+        volunteer = volunteer_resp.get("Item")
+        if not volunteer or "groupcode" not in volunteer:
+            return jsonify({"message": "Volunteer not found or missing groupcode"}), 400
+        groupcode = volunteer["groupcode"]
+
         ride_table = dynamodb.Table('rideinfo')
         response = ride_table.scan()
         items = response.get("Items", [])
         accepted_requests = []
+        valid_statuses = {"Accepted", "volunteerstarted", "ridestarted", "rideended"}
         for item in items:
-            print(f"Checking item: status={item.get('status', '')}, acceptedby={item.get('acceptedby', '')}")
+            # Only include rides that are accepted by this volunteer, match groupcode, and have a valid status
             if (
-                item.get("status", "") == "Accepted"
+                item.get("status", "") in valid_statuses
                 and item.get("acceptedby", "") == emailaddress
+                and item.get("groupcode", "") == groupcode
             ):
                 ride = {
                     "id": item.get("id", ""),
@@ -386,13 +442,24 @@ def current_rides():
         print("User email address:", user_email)
         if not user_email:
             return jsonify({"message": "Missing emailaddress"}), 400
-        print("User email address:", user_email)
+
+        # Get groupcode from riderinfo table
+        rider_table = dynamodb.Table('riderinfo')
+        rider_resp = rider_table.get_item(Key={"emailaddress": user_email})
+        rider = rider_resp.get("Item")
+        if not rider or "groupcode" not in rider:
+            return jsonify({"message": "User not found or missing groupcode"}), 400
+        groupcode = rider["groupcode"]
+
         ride_table = dynamodb.Table('rideinfo')
         response = ride_table.scan()
         items = response.get("Items", [])
         rides = []
         for item in items:
-            if item.get("userEmailAddress", "") == user_email:
+            if (
+                item.get("userEmailAddress", "") == user_email
+                and item.get("groupcode", "") == groupcode
+            ):
                 rides.append({
                     "id": item.get("id", ""),
                     "status": item.get("status", ""),
@@ -548,7 +615,133 @@ def change_password():
         print(f"Error in changePassword: {e}")
         return jsonify({"message": f"Error processing request: {str(e)}"}), 500
 
+@app.route("/adminLogin", methods=["POST"])
+def admin_login():
+    print("Admin login endpoint called")
+    data = request.get_json()
+    userid = data.get("userId")
+    password = data.get("password")
+    if not userid or not password:
+        return jsonify({"message": "Missing userid or password"}), 400
+
+    try:
+        print(f"Attempting admin login for user: {userid}")
+        admin_table = dynamodb.Table('adminuser')
+        resp = admin_table.get_item(Key={"userid": userid})
+        admin = resp.get("Item")
+        if admin and admin.get("password") == password:
+            return jsonify({"message": "success"}), 200
+        else:
+            return jsonify({"message": "Invalid userid or password"}), 401
+    except Exception as e:
+        print(f"Error in adminLogin: {e}")
+        return jsonify({"message": f"Error processing request: {str(e)}"}), 500
+
+@app.route("/createGroup", methods=["POST"])
+def create_group():
+    data = request.get_json()
+    print("Received data for createGroup:", data)
+    required_fields = ["emailaddress", "phonenumber", "groupname", "location", "grouptype"]
+    if not data or not all(field in data for field in required_fields):
+        return jsonify({"message": "Missing required fields"}), 400
+
+    group_table = dynamodb.Table('groupinfo')
+
+    # Generate 6-digit random unique id (numeric)
+    groupid = "{:06d}".format(random.randint(0, 999999))
+
+    # Generate unique 6-character alphabetical groupcode (unique for each group)
+    max_attempts = 10
+    for _ in range(max_attempts):
+        groupcode = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ', k=6))
+        # Check uniqueness for groupcode only
+        response = group_table.scan(
+            FilterExpression="groupcode = :code",
+            ExpressionAttributeValues={
+                ":code": groupcode
+            }
+        )
+        if not response.get("Items"):
+            break
+    else:
+        return jsonify({"message": "Failed to generate unique groupcode"}), 500
+
+    group_row = {
+        "groupid": groupid,
+        "groupcode": groupcode,
+        "emailaddress": data["emailaddress"],
+        "phonenumber": data["phonenumber"],
+        "groupname": data["groupname"],
+        "location": data["location"],
+        "grouptype": data["grouptype"]
+    }
+
+    try:
+        group_table.put_item(Item=group_row)
+        return jsonify({
+            "message": "Group created successfully",
+            "groupid": groupid,
+            "groupcode": groupcode
+        }), 200
+    except Exception as e:
+        print(f"Error creating group: {e}")
+        return jsonify({"message": f"Failed to create group: {str(e)}"}), 500
+
+@app.route("/updateStatus", methods=["POST"])
+def update_status():
+    data = request.get_json()
+    ride_id = data.get("id")
+    if not ride_id:
+        return jsonify({"message": "Missing ride id"}), 400
+    try:
+        ride_table = dynamodb.Table('rideinfo')
+        ride_resp = ride_table.get_item(Key={"id": ride_id})
+        current_status = ride_resp.get("Item", {}).get("status", "unknown")
+        print(f"Current status for ride {ride_id}: {current_status}")
+
+        if current_status == "volunteerstarted":
+            new_status = "ridestarted"
+        elif current_status == "ridestarted":
+            new_status = "rideended"
+        else:
+            new_status = "rideended"
+
+        ride_table.update_item(
+            Key={"id": ride_id},
+            UpdateExpression="SET #status = :newstatus",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={":newstatus": new_status}
+        )
+        return jsonify({"status": new_status}), 200
+    except Exception as e:
+        print(f"Error updating ride status: {e}")
+        return jsonify({"message": f"Failed to update ride status: {str(e)}"}), 500
+
+@app.route("/updateStatusBar", methods=["POST"])
+def update_status_bar():
+    data = request.get_json()
+    ride_id = data.get("id")
+    if not ride_id:
+        return jsonify({"message": "Missing ride id"}), 400
+    try:
+        ride_table = dynamodb.Table('rideinfo')
+        ride_resp = ride_table.get_item(Key={"id": ride_id})
+        status = ride_resp.get("Item", {}).get("status", None)
+        if status == "volunteerstarted":
+            return jsonify({"status": "volunteerstarted"}), 200
+        elif status == "ridestarted":
+            return jsonify({"status": "ridestarted"}), 200
+        elif status == "rideended":
+            return jsonify({"status": "rideended"}), 200
+        else:
+            return jsonify({"status": status}), 200
+    except Exception as e:
+        print(f"Error in updateStatusBar: {e}")
+        return jsonify({"message": f"Failed to get ride status: {str(e)}"}), 500
     
+# The currentRides API is responsible for displaying the current rides.
+if __name__ == "__main__":
+   app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
 if __name__ == "__main__":
    app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
 
