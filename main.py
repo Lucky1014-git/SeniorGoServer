@@ -398,6 +398,7 @@ def accepted_requests():
         print("Fetching accepted ride requests...")
         emailaddress = data.get("emailaddress")
         print("The email address is:", emailaddress)
+        
         volunteer_table = dynamodb.Table('volunteerinfo')
         volunteer_resp = volunteer_table.get_item(Key={"emailaddress": emailaddress})
         volunteer = volunteer_resp.get("Item")
@@ -409,11 +410,10 @@ def accepted_requests():
         response = ride_table.scan()
         items = response.get("Items", [])
         accepted_requests = []
-        valid_statuses = {"Accepted", "volunteerstarted", "ridestarted", "rideended"}
         for item in items:
-            # Only include rides that are accepted by this volunteer, match groupcode, and have a valid status
+            # Only include rides that are accepted by this volunteer and match groupcode
             if (
-                item.get("status", "") in valid_statuses
+                item.get("status", "") == "Accepted"
                 and item.get("acceptedby", "") == emailaddress
                 and item.get("groupcode", "") == groupcode
             ):
@@ -690,8 +690,17 @@ def create_group():
 @app.route("/updateStatus", methods=["POST"])
 def update_status():
     data = request.get_json()
-    ride_id = data.get("id")
+    print(f"Received data in updateStatus: {data}")  # Debug: see all incoming data
+    ride_id = data.get("rideId")
+    print(f"Extracted ride_id: '{ride_id}' (type: {type(ride_id)})")  # Debug: see exact value and type
+    
+    # Also check for alternative parameter names
     if not ride_id:
+        ride_id = data.get("id")  # Fallback to 'id' if 'rideId' not found
+        print(f"Fallback ride_id from 'id': '{ride_id}'")
+    
+    if not ride_id:
+        print("No ride ID found in request data")
         return jsonify({"message": "Missing ride id"}), 400
     try:
         ride_table = dynamodb.Table('rideinfo')
@@ -720,7 +729,7 @@ def update_status():
 @app.route("/updateStatusBar", methods=["POST"])
 def update_status_bar():
     data = request.get_json()
-    ride_id = data.get("id")
+    ride_id = data.get("rideId")
     if not ride_id:
         return jsonify({"message": "Missing ride id"}), 400
     try:
