@@ -8,6 +8,11 @@ from botocore.exceptions import ClientError
 
 
 
+# API: /signUpSenior
+# Description: Registers a new senior user. Validates groupcode, prevents duplicate emails, and sends a confirmation email upon successful signup.
+# Request: {"fullName": "<name>", "phone": "<phone>", "email": "<email>", "password": "<pwd>", "confirmPassword": "<pwd>", "address": "<address>", "agree": true, "groupCode": "<code>"}
+# Response: {"message": "Signup saved successfully!"}
+# Error: Returns 400 for missing fields or invalid groupcode, 500 for server/email errors, 400 for duplicate email.
 def setup_signup_senior_routes(app):
     @app.route("/signUpSenior", methods=["POST"])
     def sign_up_senior():
@@ -85,6 +90,11 @@ def setup_signup_senior_routes(app):
 
 
 
+# API: /requestRide
+# Description: Allows a senior to request a ride. Saves ride details, notifies all volunteers via email, and stores ride in rideinfo table.
+# Request: {"currentLocation": "<location>", "dropoffLocation": "<location>", "pickupDateTime": "<datetime>", "userEmailAddress": "<email>"}
+# Response: {"message": "Ride request saved successfully!"}
+# Error: Returns 400 for missing fields, 500 for server/email errors, 400 if user/groupcode not found.
 def setup_request_ride_routes(app):
     @app.route("/requestRide", methods=["POST"])
     def request_ride():
@@ -177,6 +187,11 @@ def setup_request_ride_routes(app):
             print(f"Error saving ride request: {e}")
             return jsonify({"message": f"Failed to save ride request: {str(e)}"}), 500
 
+# API: /currentRides
+# Description: Returns all current rides for a senior user, filtered by email and groupcode. Used to display ride status/history to the user.
+# Request: {"emailaddress": "<email>"}
+# Response: {"currentRides": [ ...ride objects... ]}
+# Error: Returns 400 for missing emailaddress or user/groupcode not found, 500 for server errors.
 def setup_current_rides_routes(app):
     @app.route("/currentRides", methods=["POST"])
     def current_rides():

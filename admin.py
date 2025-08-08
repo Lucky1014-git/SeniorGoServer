@@ -3,6 +3,11 @@ from db_config import rider_table, volunteer_table,group_table, admin_table
 import boto3
 import random
 
+# API: /adminLogin
+# Description: Authenticates an admin user by userid and password. Returns success if credentials match, otherwise returns error.
+# Request: {"userId": "<userid>", "password": "<pwd>"}
+# Response: {"message": "success"}
+# Error: Returns 400 for missing fields, 401 for invalid credentials, 500 for server errors.
 def setup_admin_login_routes(app):
     @app.route("/adminLogin", methods=["POST"])
     def admin_login():
@@ -26,6 +31,11 @@ def setup_admin_login_routes(app):
             return jsonify({"message": f"Error processing request: {str(e)}"}), 500
 
 
+# API: /createGroup
+# Description: Allows an admin to create a new group. Generates a unique groupid and groupcode, checks for uniqueness, and stores group details in groupinfo table.
+# Request: {"emailaddress": "<email>", "phonenumber": "<phone>", "groupname": "<name>", "location": "<location>", "grouptype": "<type>"}
+# Response: {"message": "Group created successfully", "groupid": "<id>", "groupcode": "<code>"}
+# Error: Returns 400 for missing fields, 500 for groupcode generation or database errors.
 def setup_create_group_routes(app):
     @app.route("/createGroup", methods=["POST"])
     def create_group():

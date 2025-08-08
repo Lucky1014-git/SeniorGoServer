@@ -5,6 +5,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from botocore.exceptions import ClientError
 
+# API: /signUpVolunteer
+# Description: Registers a new volunteer user. Validates groupcode, prevents duplicate emails, and sends a confirmation email upon successful signup.
+# Request: {"fullName": "<name>", "dob": "<dob>", "email": "<email>", "password": "<pwd>", "phone": "<phone>", "address": "<address>", "hasLicense": true, "licenseNumber": "<number>", "hasVehicle": true, "vehicleType": "<type>", "proof": "<proof>", "backgroundCheck": true, "volunteeredBefore": true, "firstAid": true, "mobilityHelp": true, "groupCode": "<code>"}
+# Response: {"message": "Volunteer signup saved successfully!"}
+# Error: Returns 400 for missing fields or invalid groupcode, 500 for server/email errors, 400 for duplicate email.
 def setup_signup_volunteer_routes(app):
     @app.route("/signUpVolunteer", methods=["POST"])
     def sign_up_volunteer():
@@ -94,6 +99,11 @@ def setup_signup_volunteer_routes(app):
             print(f"Error: {e}")
             return jsonify({"message": f"Failed to save data: {str(e)}"}), 500
 
+# API: /activeRequests
+# Description: Returns all active ride requests for a volunteer, filtered by groupcode. Only includes rides not yet accepted.
+# Request: {"emailaddress": "<email>"}
+# Response: {"activeRequests": [ ...ride objects... ]}
+# Error: Returns 400 for missing emailaddress or volunteer/groupcode not found, 500 for server errors.
 def setup_active_requests_routes(app):
     @app.route("/activeRequests", methods=["POST"])
     def active_requests():
@@ -134,6 +144,11 @@ def setup_active_requests_routes(app):
             print(f"Error fetching active ride requests: {e}")
             return jsonify({"message": f"Failed to fetch active ride requests: {str(e)}"}), 500
 
+# API: /acceptRequests
+# Description: Allows a volunteer to accept a ride request. Updates ride status and records volunteer email in rideinfo table.
+# Request: {"id": "<ride_id>", "emailaddress": "<volunteer_email>"}
+# Response: {"message": "Ride accepted successfully!"}
+# Error: Returns 400 for missing ride id or volunteer email, 500 for server errors.
 def setup_accept_requests_routes(app):
     @app.route("/acceptRequests", methods=["POST"])
     def accept_requests():
@@ -167,6 +182,11 @@ def setup_accept_requests_routes(app):
             print(f"Error accepting ride request: {e}")
             return jsonify({"message": f"Failed to accept ride request: {str(e)}"}), 500
 
+# API: /acceptedRequests
+# Description: Returns all rides accepted by a volunteer, filtered by groupcode and volunteer email.
+# Request: {"emailaddress": "<volunteer_email>"}
+# Response: {"acceptedRequests": [ ...ride objects... ]}
+# Error: Returns 400 for missing emailaddress or volunteer/groupcode not found, 500 for server errors.
 def setup_accepted_requests_routes(app):
     @app.route("/acceptedRequests", methods=["POST"])
     def accepted_requests():
