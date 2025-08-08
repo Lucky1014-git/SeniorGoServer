@@ -8,91 +8,26 @@ import boto3
 from botocore.exceptions import ClientError
 import uuid
 import random
+from common import setup_login_routes
+from seniors import setup_signup_senior_routes
 
 dynamodb = boto3.resource('dynamodb')  # Set your region
 
 app = Flask(__name__)
 #excel_file = "senior_signups.xlsx"
 
+# Setup login routes from common.py
+setup_login_routes(app)
+
+# Setup signup routes from seniors.py
+setup_signup_senior_routes(app)
+
 @app.route("/")
 def home():
     return "This is the home page of the SeniorGo server."
 
-@app.route("/signUpSenior", methods=["POST"])
-def sign_up_senior():
-    data = request.get_json()
-    print(data)
-    required_fields = ["fullName", "phone", "email", "password", "confirmPassword", "address", "agree", "groupCode"]
-    if not data or not all(field in data for field in required_fields):
-        return jsonify({"message": "Missing required fields"}), 400
 
-    # Validate groupcode
-    groupcode = data["groupCode"]
-    group_table = boto3.resource('dynamodb').Table('groupinfo')
-    group_resp = group_table.scan(
-        FilterExpression="groupcode = :code",
-        ExpressionAttributeValues={":code": groupcode}
-    )
-    if not group_resp.get("Items"):
-        return jsonify({"message": "Invalid groupcode"}), 400
-
-    # Get the actual groupcode from the groupinfo table (ensures correct casing/format)
-    groupcode_db = group_resp["Items"][0]["groupcode"]
-
-    row = {
-        "emailaddress": data["email"],
-        "fullname": data["fullName"],
-        "phone": data["phone"],
-        "password": data["password"],  # ⚠️ Hash in production
-        "address": data["address"],
-        "groupcode": groupcode_db
-    }
-
-    try:
-        rider_table = dynamodb.Table('riderinfo')
-        # ✅ Prevent duplicate email using conditional expression
-        rider_table.put_item(
-            Item=row,
-            ConditionExpression="attribute_not_exists(#email)",
-            ExpressionAttributeNames={"#email": "email-address"}
-        )
-
-        # ✅ Email setup
-        sender_email = "vkalpsm@gmail.com"
-        receiver_email = data["email"]
-        app_password = "wkmu kctm vpje coib"
-
-        subject = "Account Signup Confirmation"
-        body = (
-            "Hi there,\n\nYou have successfully signed up for SeniorGo! "
-            "Thank you for joining our community.\n\nBest regards,\nSeniorGo Team"
-        )
-
-        msg = MIMEMultipart()
-        msg["From"] = sender_email
-        msg["To"] = receiver_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(sender_email, app_password)
-            server.send_message(msg)
-            print("✅ Email sent successfully!")
-
-        return jsonify({"message": "Signup saved successfully!"}), 200
-
-    except ClientError as e:
-        # ✅ Specific handling for duplicate email
-        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            return jsonify({"message": "This email already exists. Please try logging in instead"}), 400
-        else:
-            print(f"Unexpected ClientError: {e}")
-            return jsonify({"message": f"Unexpected error: {str(e)}"}), 500
-
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"message": f"Failed to save data: {str(e)}"}), 500
+# ...existing code...
 
 @app.route("/signUpVolunteer", methods=["POST"])
 def sign_up_volunteer():
@@ -184,52 +119,6 @@ def sign_up_volunteer():
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"message": f"Failed to save data: {str(e)}"}), 500
-
-@app.route("/login", methods=["POST"])
-def login():
-    data = request.get_json()
-    if not data or "email" not in data or "password" not in data:
-        return jsonify({"message": "Missing email or password"}), 400
-
-    email = data["email"]
-    password = data["password"]
-    rider_table = dynamodb.Table('riderinfo')
-    volunteer_table = dynamodb.Table('volunteerinfo')
-
-    # Check in rider-info table (senior)
-    try:
-        response = rider_table.get_item(Key={"emailaddress": email})
-        senior = response.get("Item")
-        if senior:
-            if senior.get("password") == password:
-                return jsonify({
-                    "message": "success",
-                    "accountType": "senior",
-                    "userInfo": senior
-                }), 200
-            else:
-                return jsonify({"message": "Incorrect password"}), 401
-    except Exception as e:
-        print(f"Error querying rider-info: {e}")
-
-    # Check in volunteers-info table
-    try:
-        volunteer_table = boto3.resource('dynamodb').Table('volunteerinfo')
-        response = volunteer_table.get_item(Key={"emailaddress": email})
-        volunteer = response.get("Item")
-        if volunteer:
-            if volunteer.get("password") == password:
-                return jsonify({
-                    "message": "success",
-                    "accountType": "volunteer",
-                    "userInfo": volunteer
-                }), 200
-            else:
-                return jsonify({"message": "Incorrect password"}), 401
-    except Exception as e:
-        print(f"Error querying volunteers-info: {e}")
-
-    return jsonify({"message": "Account does not exist"}), 404
 
 @app.route("/requestRide", methods=["POST"])
 def request_ride():
