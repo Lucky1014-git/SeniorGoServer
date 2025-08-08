@@ -1,9 +1,9 @@
-# ...existing code...
 from flask import request, jsonify
 from db_config import rider_table, volunteer_table, group_table
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import uuid
 from botocore.exceptions import ClientError
 
 
@@ -82,3 +82,138 @@ def setup_signup_senior_routes(app):
         except Exception as e:
             print(f"Error: {e}")
             return jsonify({"message": f"Failed to save data: {str(e)}"}), 500
+
+
+
+def setup_request_ride_routes(app):
+    @app.route("/requestRide", methods=["POST"])
+    def request_ride():
+        data = request.get_json()
+        try: 
+            print(data)
+
+            required_fields = ["currentLocation", "dropoffLocation", "pickupDateTime", "userEmailAddress"]
+            if not data or not all(field in data for field in required_fields):
+                print("Line 210")
+                return jsonify({"message": "Missing required fields"}), 400
+
+            pickup_datetime = data["pickupDateTime"]
+            print("Pickup date and time:", pickup_datetime)
+
+            # Get groupcode from riderinfo table
+            rider_resp = rider_table.get_item(Key={"emailaddress": data["userEmailAddress"]})
+            rider = rider_resp.get("Item")
+            if not rider or "groupcode" not in rider:
+                return jsonify({"message": "User not found or missing groupcode"}), 400
+            groupcode = rider["groupcode"]
+
+            ride_row = {
+                "id": str(uuid.uuid4()),  # Unique ride id
+                "currentlocation": data["currentLocation"],
+                "dropofflocation": data["dropoffLocation"],
+                "pickupDateTime": pickup_datetime,
+                "userEmailAddress": data["userEmailAddress"],
+                "acceptedby": "",
+                "status": "requested",
+                "groupcode": groupcode  # Store groupcode from riderinfo
+            }
+            print(ride_row)
+            print("Ride row to be saved:", ride_row)
+        
+            ride_table = group_table.meta.client.Table('rideinfo') if hasattr(group_table.meta.client, 'Table') else None
+            if not ride_table:
+                import boto3
+                ride_table = boto3.resource('dynamodb').Table('rideinfo')
+            response = ride_table.put_item(Item=ride_row)
+            print("DynamoDB put_item response:", response)
+
+            # --- Notify all volunteers ---
+            volunteer_emails = []
+            scan_kwargs = {}
+            done = False
+            start_key = None
+
+            while not done:
+                if start_key:
+                    scan_kwargs['ExclusiveStartKey'] = start_key
+                response = volunteer_table.scan(ProjectionExpression="emailaddress")
+                volunteer_emails.extend([item["emailaddress"] for item in response.get("Items", []) if "emailaddress" in item])
+                start_key = response.get('LastEvaluatedKey', None)
+                done = start_key is None 
+
+            print("Volunteer emails:", volunteer_emails)
+
+            # Email details
+            sender_email = "vkalpsm@gmail.com"
+            app_password = "wkmu kctm vpje coib"
+            subject = "SeniorGo: New Ride Request"
+            body = (
+                f"A senior has requested a ride.\n\n"
+                f"Current Location: {data['currentLocation']}\n"
+                f"Dropoff Location: {data['dropoffLocation']}\n"
+                f"Pickup DateTime: {pickup_datetime}\n"
+                f"Senior Email: {data['userEmailAddress']}\n\n"
+                f"Please log in to the SeniorGo platform for more details."
+            )
+
+            for volunteer_email in volunteer_emails:
+                try:
+                    msg = MIMEMultipart()
+                    msg["From"] = sender_email
+                    msg["To"] = volunteer_email
+                    msg["Subject"] = subject
+                    msg.attach(MIMEText(body, "plain"))
+
+                    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                        server.starttls()
+                        server.login(sender_email, app_password)
+                        server.send_message(msg)
+                    print(f"✅ Email sent to {volunteer_email}")
+                except Exception as e:
+                    print(f"Failed to send email to {volunteer_email}: {e}")
+
+            return jsonify({"message": "Ride request saved successfully!"}), 200
+        except Exception as e:
+            print(f"Error saving ride request: {e}")
+            return jsonify({"message": f"Failed to save ride request: {str(e)}"}), 500
+
+def setup_current_rides_routes(app):
+    @app.route("/currentRides", methods=["POST"])
+    def current_rides():
+        data = request.get_json()
+        try:
+            print("Fetching ride status for user:", data)
+            user_email = data.get("emailaddress")
+            print("User email address:", user_email)
+            if not user_email:
+                return jsonify({"message": "Missing emailaddress"}), 400
+
+            rider_resp = rider_table.get_item(Key={"emailaddress": user_email})
+            rider = rider_resp.get("Item")
+            if not rider or "groupcode" not in rider:
+                return jsonify({"message": "User not found or missing groupcode"}), 400
+            groupcode = rider["groupcode"]
+
+            import boto3
+            ride_table = boto3.resource('dynamodb').Table('rideinfo')
+            response = ride_table.scan()
+            items = response.get("Items", [])
+            rides = []
+            for item in items:
+                if (
+                    item.get("userEmailAddress", "") == user_email
+                    and item.get("groupcode", "") == groupcode
+                ):
+                    rides.append({
+                        "id": item.get("id", ""),
+                        "status": item.get("status", ""),
+                        "currentlocation": item.get("currentlocation", ""),
+                        "dropofflocation": item.get("dropofflocation", ""),
+                        "acceptedby": item.get("acceptedby", ""),
+                        "pickupDateTime": item.get("pickupDateTime", "")
+                    })
+            print(f"Current rides found: {len(rides)}")
+            return jsonify({"currentRides": rides}), 200
+        except Exception as e:
+            print(f"Error fetching ride status: {e}")
+            return jsonify({"message": f"Failed to fetch ride status: {str(e)}"}), 500

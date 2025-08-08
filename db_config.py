@@ -8,3 +8,4 @@ dynamodb = boto3.resource('dynamodb')  # Set your region
 rider_table = dynamodb.Table('riderinfo')
 volunteer_table = dynamodb.Table('volunteerinfo')
 group_table = dynamodb.Table('groupinfo')
+admin_table = dynamodb.Table('adminuser')
