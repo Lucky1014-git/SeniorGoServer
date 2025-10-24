@@ -39,7 +39,8 @@ def sign_up_senior(request_data):
         "phone": data["phone"],
         "password": data["password"],  # ⚠️ Hash in production
         "address": data["address"],
-        "groupcode": groupcode_db
+        "groupcode": groupcode_db,
+        "status": "active"
     }
 
     try:
@@ -371,3 +372,123 @@ def cancel_ride(request_data):
     except Exception as e:
         print(f"Error canceling ride: {e}")
         return jsonify({"message": f"Failed to cancel ride: {str(e)}"}), 500
+
+# Function: get_seniors_info
+# Description: Get seniors info handler function that returns senior information filtered by groupcode.
+# Called from main.py's /getSeniorsInfo endpoint.
+# Parameters: request_data - JSON data containing groupcode
+# Returns: JSON response with senior information for the specified groupcode
+# Error: Returns 400 for missing groupcode, 500 for server errors.
+def get_seniors_info(request_data):
+    try:
+        print("Fetching seniors information by groupcode...")
+        data = request_data
+        groupcode = data.get("groupcode")
+        
+        if not groupcode:
+            return jsonify({"message": "Missing groupcode"}), 400
+        
+        print(f"Querying seniors with groupcode: {groupcode}")
+        
+        # Scan the rider table and filter by groupcode
+        response = rider_table.scan(
+            FilterExpression="groupcode = :code",
+            ExpressionAttributeValues={":code": groupcode}
+        )
+        items = response.get("Items", [])
+        
+        seniors_list = []
+        for item in items:
+            senior_info = {
+                "emailaddress": item.get("emailaddress", ""),
+                "fullname": item.get("fullname", ""),
+                "phone": item.get("phone", ""),
+                "address": item.get("address", ""),
+                "groupcode": item.get("groupcode", ""),
+                "password": item.get("password", ""),
+                "resetPassword": item.get("resetPassword", False),
+                "status": item.get("status", "")
+            }
+            seniors_list.append(senior_info)
+        
+        print(f"Seniors found for groupcode {groupcode}: {len(seniors_list)}")
+        return jsonify({"seniors": seniors_list}), 200
+        
+    except Exception as e:
+        print(f"Error fetching seniors information: {e}")
+        return jsonify({"message": f"Failed to fetch seniors information: {str(e)}"}), 500
+
+# Function: get_rides_info
+# Description: Get rides info handler function that returns ride information filtered by groupcode.
+# Called from main.py's /getRidesInfo endpoint.
+# Parameters: request_data - JSON data containing groupcode
+# Returns: JSON response with ride information for the specified groupcode
+# Error: Returns 400 for missing groupcode, 500 for server errors.
+def get_rides_info(request_data):
+    try:
+        print("Fetching rides information by groupcode...")
+        data = request_data
+        groupcode = data.get("groupcode")
+        
+        if not groupcode:
+            return jsonify({"message": "Missing groupcode"}), 400
+        
+        print(f"Querying rides with groupcode: {groupcode}")
+        
+        # Scan the ride_info_table and filter by groupcode
+        from db_config import ride_info_table
+        response = ride_info_table.scan(
+            FilterExpression="groupcode = :code",
+            ExpressionAttributeValues={":code": groupcode}
+        )
+        items = response.get("Items", [])
+        
+        rides_list = []
+        for item in items:
+            user_email = item.get("userEmailAddress", "")
+            rider_name = ""
+            if user_email:
+                try:
+                    rider_resp = rider_table.get_item(Key={"emailaddress": user_email})
+                    rider = rider_resp.get("Item")
+                    if rider:
+                        rider_name = rider.get("fullname", "")
+                except Exception as e:
+                    print(f"Error fetching rider info for {user_email}: {e}")
+                    rider_name = "Unknown"
+
+            acceptedby_email = item.get("acceptedby", "")
+            acceptedby_name = ""
+            if acceptedby_email:
+                try:
+                    volunteer_resp = volunteer_table.get_item(Key={"emailaddress": acceptedby_email})
+                    volunteer = volunteer_resp.get("Item")
+                    if volunteer:
+                        acceptedby_name = volunteer.get("fullname", "")
+                except Exception as e:
+                    print(f"Error fetching volunteer info for {acceptedby_email}: {e}")
+                    acceptedby_name = "Unknown"
+
+            ride_info = {
+                "id": item.get("id", ""),
+                "acceptedby": acceptedby_email,
+                "acceptedbyName": acceptedby_name,
+                "currentlocation": item.get("currentlocation", ""),
+                "dropofflocation": item.get("dropofflocation", ""),
+                "groupcode": item.get("groupcode", ""),
+                "pickupDateTime": item.get("pickupDateTime", ""),
+                "status": item.get("status", ""),
+                "userEmailAddress": user_email,
+                "riderName": rider_name
+            }
+            rides_list.append(ride_info)
+        
+        # Sort rides by pickupDateTime (earliest first)
+        rides_list.sort(key=lambda ride: ride.get("pickupDateTime", ""))
+        
+        print(f"Rides found for groupcode {groupcode}: {len(rides_list)}")
+        return jsonify({"rides": rides_list}), 200
+        
+    except Exception as e:
+        print(f"Error fetching rides information: {e}")
+        return jsonify({"message": f"Failed to fetch rides information: {str(e)}"}), 500

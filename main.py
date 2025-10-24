@@ -9,8 +9,8 @@ from botocore.exceptions import ClientError
 import uuid
 import random
 from common import login_user, forgot_password, change_password, update_status, update_status_bar
-from seniors import sign_up_senior,request_ride,current_rides,request_recurring_ride,cancel_ride
-from volunteer import sign_up_volunteer, active_requests, accept_requests, accepted_requests
+from seniors import sign_up_senior,request_ride,current_rides,request_recurring_ride,cancel_ride,get_seniors_info,get_rides_info
+from volunteer import sign_up_volunteer, active_requests, accept_requests, accepted_requests, get_volunteer_info
 from admin import admin_login, create_group
 
 dynamodb = boto3.resource('dynamodb')  # Set your region
@@ -81,6 +81,16 @@ def currentRides():
     data = request.get_json()
     return current_rides(data)
 
+@app.route("/getSeniorsInfo", methods=["POST"])
+def getSeniorsInfo():
+    data = request.get_json()
+    return get_seniors_info(data)
+
+@app.route("/getRidesInfo", methods=["POST"])
+def getRidesInfo():
+    data = request.get_json()
+    return get_rides_info(data)
+
 # Volunteer APIs
 @app.route("/activeRequests", methods=["POST"])
 def activeRequests():
@@ -96,6 +106,11 @@ def acceptRequests():
 def acceptedRequests():
     data = request.get_json()
     return accepted_requests(data)
+
+@app.route("/getVolunteerInfo", methods=["POST"])
+def getVolunteerInfo():
+    data = request.get_json()
+    return get_volunteer_info(data)
 
 # Ride Status Management APIs
 @app.route("/updateStatus", methods=["POST"])

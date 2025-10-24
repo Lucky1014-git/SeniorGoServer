@@ -14,7 +14,9 @@ def main():
         "name": "Lakshitha Vengadeswaran",
         "password": "password1",  # In production, use a hashed password!
         "phone": "737-757-6812",  # Optional field
-        "createdat": datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Current date and time
+        "groupcode": "EOEREW",  # Admin group code
+        "role": "GROUP_ADMIN",  # Admin role
+        "createddate": datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Current date and time
 
     }
 

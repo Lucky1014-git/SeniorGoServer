@@ -22,7 +22,23 @@ def admin_login(request_data):
         resp = admin_table.get_item(Key={"userid": userid})
         admin = resp.get("Item")
         if admin and admin.get("password") == password:
-            return jsonify({"message": "success"}), 200
+            # Get group name from groupinfo table
+            groupcode = admin.get("groupcode")
+            if groupcode:
+                group_resp = group_table.scan(
+                    FilterExpression="groupcode = :code",
+                    ExpressionAttributeValues={":code": groupcode}
+                )
+                if group_resp.get("Items"):
+                    admin["groupname"] = group_resp["Items"][0].get("groupname", "")
+            
+            response_data = {
+                "message": "success",
+                "accountType": "admin",
+                "userInfo": admin
+            }
+            print("Admin login response:", response_data)
+            return jsonify(response_data), 200
         else:
             return jsonify({"message": "Invalid userid or password"}), 401
     except Exception as e:

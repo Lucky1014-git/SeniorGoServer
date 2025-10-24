@@ -156,16 +156,18 @@ def login_user(request_data):
     #rider_table = dynamodb.Table('riderinfo')
     #volunteer_table = dynamodb.Table('volunteerinfo')
 
+
     # Check in rider-info table (senior)
     try:
         response = rider_table.get_item(Key={"emailaddress": email})
         senior = response.get("Item")
         if senior:
+            if senior.get("status") != "active":
+                return jsonify({"message": "Account is not active"}), 403
             if senior.get("password") == password:
                 # Get group name from groupinfo table
                 groupcode = senior.get("groupcode")
                 if groupcode:
-                    #group_table = dynamodb.Table('groupinfo')
                     group_resp = group_table.scan(
                         FilterExpression="groupcode = :code",
                         ExpressionAttributeValues={":code": groupcode}
@@ -187,11 +189,12 @@ def login_user(request_data):
         response = volunteer_table.get_item(Key={"emailaddress": email})
         volunteer = response.get("Item")
         if volunteer:
+            if volunteer.get("status") != "active":
+                return jsonify({"message": "Account is not active"}), 403
             if volunteer.get("password") == password:
                 # Get group name from groupinfo table
                 groupcode = volunteer.get("groupcode")
                 if groupcode:
-                    #group_table = dynamodb.Table('groupinfo')
                     group_resp = group_table.scan(
                         FilterExpression="groupcode = :code",
                         ExpressionAttributeValues={":code": groupcode}

@@ -4,6 +4,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from botocore.exceptions import ClientError
+from imagestore import upload_profile_photo
 
 # Function: sign_up_volunteer
 # Description: Volunteer signup handler function that registers a new volunteer user. Validates groupcode, prevents duplicate emails, and sends a confirmation email upon successful signup.
@@ -17,7 +18,7 @@ def sign_up_volunteer(request_data):
     required_fields = [
         "fullName", "dob", "email", "password", "phone", "address",
         "hasLicense", "licenseNumber", "hasVehicle", "vehicleType", "proof",
-        "backgroundCheck", "volunteeredBefore", "firstAid", "mobilityHelp", "groupCode"
+        "backgroundCheck", "volunteeredBefore", "firstAid", "mobilityHelp", "groupCode","profilePhoto"
     ]
     if not data or not all(field in data for field in required_fields):
         print("Missing required fields")
@@ -35,6 +36,22 @@ def sign_up_volunteer(request_data):
     # Get the actual groupcode from the groupinfo table (ensures correct casing/format)
     groupcode_db = group_resp["Items"][0]["groupcode"]
 
+    # Upload profile photo to Cloudinary
+    profile_photo_base64 = data.get("profilePhoto")
+    image_url = None
+    
+    if profile_photo_base64:
+        try:
+            image_url = upload_profile_photo(profile_photo_base64)
+            if image_url:
+                print(f"✅ Profile photo uploaded successfully: {image_url}")
+            else:
+                print("❌ Failed to upload profile photo")
+                return jsonify({"message": "Failed to upload profile photo"}), 500
+        except Exception as e:
+            print(f"❌ Error uploading profile photo: {e}")
+            return jsonify({"message": f"Failed to upload profile photo: {str(e)}"}), 500
+
     row = {
         "emailaddress": data["email"],
         "password": data["password"],  
@@ -51,7 +68,9 @@ def sign_up_volunteer(request_data):
         "volunteeredbefore": data["volunteeredBefore"],
         "firstaidtrained": data["firstAid"],
         "mobilityassistance": data["mobilityHelp"],
-        "groupcode": groupcode_db  # Store the groupcode from the groupinfo table
+        "groupcode": groupcode_db,  # Store the groupcode from the groupinfo table
+        "imageURL": image_url,  # Store the Cloudinary secure URL
+        "status": "active"
     }
     print("shakthi")
 
@@ -126,12 +145,27 @@ def active_requests(request_data):
         for item in items:
             # Only include rides that are not accepted and match volunteer's groupcode
             if item.get("status", "") != "Accepted" and item.get("groupcode", "") == groupcode:
+                # Get rider's full name using userEmailAddress
+                user_email = item.get("userEmailAddress", "")
+                fullname = ""
+                if user_email:
+                    try:
+                        from db_config import rider_table
+                        rider_resp = rider_table.get_item(Key={"emailaddress": user_email})
+                        rider = rider_resp.get("Item")
+                        if rider:
+                            fullname = rider.get("fullname", "")
+                    except Exception as e:
+                        print(f"Error fetching rider info for {user_email}: {e}")
+                        fullname = "Unknown"
+                
                 ride = {
                     "id": item.get("id", ""),
                     "currentlocation": item.get("currentlocation", ""),
                     "dropofflocation": item.get("dropofflocation", ""),
                     "pickupDateTime": item.get("pickupDateTime", ""),
-                    "userEmailAddress": item.get("userEmailAddress", ""),
+                    "userEmailAddress": user_email,
+                    "fullname": fullname,
                     "acceptedby": item.get("acceptedby", ""),
                     "status": item.get("status", "")
                 }
@@ -225,3 +259,58 @@ def accepted_requests(request_data):
     except Exception as e:
         print(f"Error fetching accepted ride requests: {e}")
         return jsonify({"message": f"Failed to fetch accepted ride requests: {str(e)}"}), 500
+
+# Function: get_volunteer_info
+# Description: Get volunteer info handler function that returns volunteer information filtered by groupcode.
+# Called from main.py's /getVolunteerInfo endpoint.
+# Parameters: request_data - JSON data containing groupcode
+# Returns: JSON response with volunteer information for the specified groupcode
+# Error: Returns 400 for missing groupcode, 500 for server errors.
+def get_volunteer_info(request_data):
+    try:
+        print("Fetching volunteer information by groupcode...")
+        data = request_data
+        groupcode = data.get("groupcode")
+        
+        if not groupcode:
+            return jsonify({"message": "Missing groupcode"}), 400
+        
+        print(f"Querying volunteers with groupcode: {groupcode}")
+        
+        # Scan the volunteer table and filter by groupcode
+        response = volunteer_table.scan(
+            FilterExpression="groupcode = :code",
+            ExpressionAttributeValues={":code": groupcode}
+        )
+        items = response.get("Items", [])
+        
+        volunteers_list = []
+        for item in items:
+            volunteer_info = {
+                "emailaddress": item.get("emailaddress", ""),
+                "address": item.get("address", ""),
+                "backgroundcheckconsent": item.get("backgroundcheckconsent", ""),
+                "dateofbirth": item.get("dateofbirth", ""),
+                "firstaidtrained": item.get("firstaidtrained", ""),
+                "fullname": item.get("fullname", ""),
+                "groupcode": item.get("groupcode", ""),
+                "hasdriverlicense": item.get("hasdriverlicense", ""),
+                "hasvehicle": item.get("hasvehicle", ""),
+                "imageURL": item.get("imageURL", ""),
+                "licensenumber": item.get("licensenumber", ""),
+                "mobilityassistance": item.get("mobilityassistance", ""),
+                "password": item.get("password", ""),
+                "phone": item.get("phone", ""),
+                "proofofinsurance": item.get("proofofinsurance", ""),
+                "vehicletype": item.get("vehicletype", ""),
+                "volunteeredbefore": item.get("volunteeredbefore", ""),
+                "status": item.get("status", "")
+            }
+            volunteers_list.append(volunteer_info)
+        
+        print(f"Volunteers found for groupcode {groupcode}: {len(volunteers_list)}")
+        return jsonify({"volunteers": volunteers_list}), 200
+        
+    except Exception as e:
+        print(f"Error fetching volunteer information: {e}")
+        return jsonify({"message": f"Failed to fetch volunteer information: {str(e)}"}), 500
