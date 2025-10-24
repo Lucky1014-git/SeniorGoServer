@@ -492,3 +492,45 @@ def get_rides_info(request_data):
     except Exception as e:
         print(f"Error fetching rides information: {e}")
         return jsonify({"message": f"Failed to fetch rides information: {str(e)}"}), 500
+
+# Function: get_rider_info
+# Description: Get rider info handler function that returns rider information for a specific email address.
+# Called from main.py's /getRiderInfo endpoint.
+# Parameters: request_data - JSON data containing emailaddress
+# Returns: JSON response with rider information for the specified email
+# Error: Returns 400 for missing emailaddress, 404 if rider not found, 500 for server errors.
+def get_rider_info(request_data):
+    try:
+        print("Fetching rider information by email address...")
+        data = request_data
+        emailaddress = data.get("emailaddress")
+        
+        if not emailaddress:
+            return jsonify({"message": "Missing emailaddress"}), 400
+        
+        print(f"Querying rider with email: {emailaddress}")
+        
+        # Get the rider by email address
+        rider_resp = rider_table.get_item(Key={"emailaddress": emailaddress})
+        rider = rider_resp.get("Item")
+        
+        if not rider:
+            return jsonify({"message": "Rider not found"}), 404
+        
+        rider_info = {
+            "emailaddress": rider.get("emailaddress", ""),
+            "fullname": rider.get("fullname", ""),
+            "phone": rider.get("phone", ""),
+            "address": rider.get("address", ""),
+            "groupcode": rider.get("groupcode", ""),
+            "password": rider.get("password", ""),
+            "resetPassword": rider.get("resetPassword", False),
+            "status": rider.get("status", "")
+        }
+        
+        print(f"Rider found: {rider_info['fullname']}")
+        return jsonify({"rider": rider_info}), 200
+        
+    except Exception as e:
+        print(f"Error fetching rider information: {e}")
+        return jsonify({"message": f"Failed to fetch rider information: {str(e)}"}), 500

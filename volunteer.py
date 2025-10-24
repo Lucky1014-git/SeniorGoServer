@@ -266,7 +266,7 @@ def accepted_requests(request_data):
 # Parameters: request_data - JSON data containing groupcode
 # Returns: JSON response with volunteer information for the specified groupcode
 # Error: Returns 400 for missing groupcode, 500 for server errors.
-def get_volunteer_info(request_data):
+def get_volunteers_info(request_data):
     try:
         print("Fetching volunteer information by groupcode...")
         data = request_data
@@ -310,6 +310,58 @@ def get_volunteer_info(request_data):
         
         print(f"Volunteers found for groupcode {groupcode}: {len(volunteers_list)}")
         return jsonify({"volunteers": volunteers_list}), 200
+        
+    except Exception as e:
+        print(f"Error fetching volunteer information: {e}")
+        return jsonify({"message": f"Failed to fetch volunteer information: {str(e)}"}), 500
+
+# Function: get_volunteer_info
+# Description: Get volunteer info handler function that returns volunteer information for a specific email address.
+# Called from main.py's /getVolunteerInfo endpoint.
+# Parameters: request_data - JSON data containing emailaddress
+# Returns: JSON response with volunteer information for the specified email
+# Error: Returns 400 for missing emailaddress, 404 if volunteer not found, 500 for server errors.
+def get_volunteer_info(request_data):
+    try:
+        print("Fetching volunteer information by email address...")
+        data = request_data
+        emailaddress = data.get("emailaddress")
+        
+        if not emailaddress:
+            return jsonify({"message": "Missing emailaddress"}), 400
+        
+        print(f"Querying volunteer with email: {emailaddress}")
+        
+        # Get the volunteer by email address
+        volunteer_resp = volunteer_table.get_item(Key={"emailaddress": emailaddress})
+        volunteer = volunteer_resp.get("Item")
+        
+        if not volunteer:
+            return jsonify({"message": "Volunteer not found"}), 404
+        
+        volunteer_info = {
+            "emailaddress": volunteer.get("emailaddress", ""),
+            "address": volunteer.get("address", ""),
+            "backgroundcheckconsent": volunteer.get("backgroundcheckconsent", ""),
+            "dateofbirth": volunteer.get("dateofbirth", ""),
+            "firstaidtrained": volunteer.get("firstaidtrained", ""),
+            "fullname": volunteer.get("fullname", ""),
+            "groupcode": volunteer.get("groupcode", ""),
+            "hasdriverlicense": volunteer.get("hasdriverlicense", ""),
+            "hasvehicle": volunteer.get("hasvehicle", ""),
+            "imageURL": volunteer.get("imageURL", ""),
+            "licensenumber": volunteer.get("licensenumber", ""),
+            "mobilityassistance": volunteer.get("mobilityassistance", ""),
+            "password": volunteer.get("password", ""),
+            "phone": volunteer.get("phone", ""),
+            "proofofinsurance": volunteer.get("proofofinsurance", ""),
+            "vehicletype": volunteer.get("vehicletype", ""),
+            "volunteeredbefore": volunteer.get("volunteeredbefore", ""),
+            "status": volunteer.get("status", "")
+        }
+        
+        print(f"Volunteer found: {volunteer_info['fullname']}")
+        return jsonify({"volunteer": volunteer_info}), 200
         
     except Exception as e:
         print(f"Error fetching volunteer information: {e}")
