@@ -2,4 +2,4 @@ Flask
 boto3
 pandas
 botocore
-email-validator
+cloudinary
