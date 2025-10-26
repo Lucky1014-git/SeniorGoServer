@@ -11,7 +11,7 @@ import random
 from common import login_user, forgot_password, change_password, update_status, update_status_bar
 from seniors import sign_up_senior,request_ride,current_rides,request_recurring_ride,cancel_ride,get_seniors_info,get_rides_info,get_rider_info
 from volunteer import sign_up_volunteer, active_requests, accept_requests, accepted_requests, get_volunteers_info, get_volunteer_info
-from admin import admin_login, create_group
+from admin import admin_login, create_group, get_all_groups, get_all_group_admin_users
 
 dynamodb = boto3.resource('dynamodb')  # Set your region
 
@@ -59,6 +59,16 @@ def adminLogin():
 def createGroup():
     data = request.get_json()
     return create_group(data)
+
+@app.route("/getAllGroups", methods=["POST"])
+def getAllGroups():
+    data = request.get_json()
+    return get_all_groups(data)
+
+@app.route("/getAllGroupAdminUsers", methods=["POST"])
+def getAllGroupAdminUsers():
+    data = request.get_json()
+    return get_all_group_admin_users(data)
 
 # Senior/Rider APIs
 @app.route("/requestRide", methods=["POST"])

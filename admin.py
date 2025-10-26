@@ -55,7 +55,7 @@ def admin_login(request_data):
 def create_group(request_data):
     data = request_data
     print("Received data for createGroup:", data)
-    required_fields = ["emailaddress", "phonenumber", "groupname", "location", "grouptype"]
+    required_fields = ["emailaddress", "groupname", "grouptype", "location", "phonenumber"]
     if not data or not all(field in data for field in required_fields):
         return jsonify({"message": "Missing required fields"}), 400
 
@@ -98,3 +98,92 @@ def create_group(request_data):
     except Exception as e:
         print(f"Error creating group: {e}")
         return jsonify({"message": f"Failed to create group: {str(e)}"}), 500
+
+# Function: get_all_groups
+# Description: Get all groups handler function that fetches all group information from the group info table.
+# Called from main.py's /getAllGroups endpoint.
+# Parameters: request_data - JSON data (no specific parameters required)
+# Returns: JSON response with all groups information
+# Error: Returns 500 for server errors.
+def get_all_groups(request_data):
+    try:
+        print("Fetching all groups information...")
+        
+        # Scan the group table to get all groups
+        response = group_table.scan()
+        items = response.get("Items", [])
+        
+        groups_list = []
+        for item in items:
+            group_info = {
+                "groupid": item.get("groupid", ""),
+                "groupcode": item.get("groupcode", ""),
+                "emailaddress": item.get("emailaddress", ""),
+                "phonenumber": item.get("phonenumber", ""),
+                "groupname": item.get("groupname", ""),
+                "location": item.get("location", ""),
+                "grouptype": item.get("grouptype", "")
+            }
+            groups_list.append(group_info)
+        
+        print(f"Total groups found: {len(groups_list)}")
+        return jsonify({"groups": groups_list}), 200
+        
+    except Exception as e:
+        print(f"Error fetching groups information: {e}")
+        return jsonify({"message": f"Failed to fetch groups information: {str(e)}"}), 500
+
+# Function: get_all_group_admin_users
+# Description: Get all group admin users handler function that fetches all admin records where role is GROUP_ADMIN.
+# Called from main.py's /getAllGroupAdminUsers endpoint.
+# Parameters: request_data - JSON data (no specific parameters required)
+# Returns: JSON response with all group admin users information
+# Error: Returns 500 for server errors.
+def get_all_group_admin_users(request_data):
+    try:
+        print("Fetching all group admin users...")
+        
+        # Scan the admin table and filter by role = GROUP_ADMIN
+        response = admin_table.scan(
+            FilterExpression="#role = :role",
+            ExpressionAttributeNames={"#role": "role"},
+            ExpressionAttributeValues={":role": "GROUP_ADMIN"}
+        )
+        items = response.get("Items", [])
+        
+        admin_users_list = []
+        for item in items:
+            # Get group name from groupinfo table using groupcode
+            groupcode = item.get("groupcode", "")
+            groupname = ""
+            if groupcode:
+                try:
+                    group_resp = group_table.scan(
+                        FilterExpression="groupcode = :code",
+                        ExpressionAttributeValues={":code": groupcode}
+                    )
+                    if group_resp.get("Items"):
+                        groupname = group_resp["Items"][0].get("groupname", "")
+                except Exception as e:
+                    print(f"Error fetching group name for groupcode {groupcode}: {e}")
+                    groupname = "Unknown"
+            
+            admin_user_info = {
+                "userid": item.get("userid", ""),
+                "createddate": item.get("createddate", ""),
+                "email": item.get("email", ""),
+                "groupcode": groupcode,
+                "groupname": groupname,
+                "name": item.get("name", ""),
+                "password": item.get("password", ""),
+                "phone": item.get("phone", ""),
+                "role": item.get("role", "")
+            }
+            admin_users_list.append(admin_user_info)
+        
+        print(f"Total group admin users found: {len(admin_users_list)}")
+        return jsonify({"groupAdminUsers": admin_users_list}), 200
+        
+    except Exception as e:
+        print(f"Error fetching group admin users: {e}")
+        return jsonify({"message": f"Failed to fetch group admin users: {str(e)}"}), 500
